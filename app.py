@@ -2,7 +2,6 @@ import streamlit as st
 import requests
 import msal
 import pandas as pd
-from collections import defaultdict
 import plotly.express as px
 
 st.set_page_config(page_title="📊 Product Status Tracker", layout="wide")
@@ -48,12 +47,7 @@ else:
         "Content-Type": "application/json"
     }
 
-    grouped_data = defaultdict(lambda: {
-        "Buckets": set(),
-        "Statuses": set(),
-        "Teams": set(),
-        "Links": []
-    })
+    task_rows = []
 
     def task_status_label(task):
         percent = task.get("percentComplete", 0)
@@ -65,7 +59,6 @@ else:
             return "🟡 Not Started"
 
     for plan_id in plan_ids:
-        # Get plan details
         plan_url = f"https://graph.microsoft.com/v1.0/planner/plans/{plan_id}"
         plan_res = requests.get(plan_url, headers=headers)
         if plan_res.status_code != 200:
@@ -77,7 +70,6 @@ else:
         if not group_id:
             continue
 
-        # Buckets
         bucket_url = f"https://graph.microsoft.com/v1.0/planner/plans/{plan_id}/buckets"
         bucket_res = requests.get(bucket_url, headers=headers)
         if bucket_res.status_code != 200:
@@ -85,7 +77,6 @@ else:
         buckets = bucket_res.json().get("value", [])
         bucket_map = {b["id"]: b["name"] for b in buckets}
 
-        # Tasks
         task_url = f"https://graph.microsoft.com/v1.0/planner/plans/{plan_id}/tasks"
         task_res = requests.get(task_url, headers=headers)
         if task_res.status_code != 200:
@@ -96,8 +87,10 @@ else:
             status = task_status_label(task)
             if "Completed" in status:
                 continue
+
             title = task.get("title", "")
-            bucket_name = bucket_map.get(task["bucketId"], "Unknown")
+            bucket_id = task.get("bucketId", "")
+            bucket_name = bucket_map.get(bucket_id, "Unknown")
             task_id = task.get("id", "")
 
             task_link = (
@@ -105,23 +98,16 @@ else:
                 f"#/plantaskboard?groupId={group_id}&planId={plan_id}&taskId={task_id}"
             )
 
-            grouped_data[title]["Buckets"].add(bucket_name)
-            grouped_data[title]["Statuses"].add(status)
-            grouped_data[title]["Teams"].add(plan_name)
-            grouped_data[title]["Links"].append(f"[{bucket_name}]({task_link})")
+            task_rows.append({
+                "Product Name": title,
+                "Bucket": bucket_name,
+                "Status": status,
+                "Team": plan_name,
+                "Open Task Link": f"[{bucket_name}]({task_link})"
+            })
 
-    # Convert to DataFrame
-    records = []
-    for title, data in grouped_data.items():
-        records.append({
-            "Product Name": title,
-            "Buckets": ", ".join(sorted(data["Buckets"])),
-            "Statuses": ", ".join(sorted(data["Statuses"])),
-            "Team": ", ".join(sorted(data["Teams"])),
-            "Open Task Links": " | ".join(data["Links"])
-        })
-
-    df = pd.DataFrame(records)
+    # Create flat DataFrame
+    df = pd.DataFrame(task_rows)
 
     # ---------------- Filters ------------------
     st.markdown("### 🔎 Filter by Product / Bucket / Team")
@@ -131,19 +117,19 @@ else:
         product_filter = st.selectbox("📦 Product Name", ["All"] + sorted(df["Product Name"].unique().tolist()))
 
     with col2:
-        bucket_filter = st.multiselect("🗂️ Buckets", sorted({b for b_list in df["Buckets"].str.split(", ") for b in b_list}))
+        bucket_filter = st.multiselect("🗂️ Buckets", sorted(df["Bucket"].unique().tolist()))
 
     with col3:
-        team_filter = st.multiselect("👥 Teams", sorted({t for t_list in df["Team"].str.split(", ") for t in t_list}))
+        team_filter = st.multiselect("👥 Teams", sorted(df["Team"].unique().tolist()))
 
     filtered_df = df.copy()
 
     if product_filter != "All":
         filtered_df = filtered_df[filtered_df["Product Name"] == product_filter]
     if bucket_filter:
-        filtered_df = filtered_df[filtered_df["Buckets"].apply(lambda b: any(bucket in b for bucket in bucket_filter))]
+        filtered_df = filtered_df[filtered_df["Bucket"].isin(bucket_filter)]
     if team_filter:
-        filtered_df = filtered_df[filtered_df["Team"].apply(lambda t: any(team in t for team in team_filter))]
+        filtered_df = filtered_df[filtered_df["Team"].isin(team_filter)]
 
     # ---------------- Final Display ------------------
     st.markdown(f"### 🧮 Total Products: `{filtered_df['Product Name'].nunique()}`")
@@ -154,7 +140,7 @@ else:
 
     # 🥧 Pie Chart: Product distribution by Team
     st.markdown("#### 👥 Product Distribution by Team")
-    team_counts = filtered_df["Team"].str.split(", ").explode().value_counts().reset_index()
+    team_counts = filtered_df["Team"].value_counts().reset_index()
     team_counts.columns = ["Team", "Count"]
     if not team_counts.empty:
         fig = px.pie(
