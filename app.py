@@ -147,7 +147,6 @@ else:
 
     # ---------------- Final Display ------------------
     st.markdown(f"### 🧮 Total Products: `{filtered_df['Product Name'].nunique()}`")
-    st.markdown("### 📋 Consolidated Task View")
     st.dataframe(filtered_df.reset_index(drop=True), use_container_width=True)
 
     # ---------------- Chart Section ------------------
