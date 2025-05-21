@@ -5,7 +5,7 @@ import pandas as pd
 import plotly.express as px
 
 st.set_page_config(page_title="📊 Product Status Tracker", layout="wide")
-st.title("📊 Product - Bucket - Status View")
+st.title("📊 NPD Dashboard")
 
 # Auth
 client_id = st.secrets["CLIENT_ID"]
